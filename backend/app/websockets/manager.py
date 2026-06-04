@@ -31,8 +31,12 @@ async def subscribe(sid, data):
 
 async def broadcast_signal(signal_data: dict):
     """
-    Broadcast a new signal to all clients subscribed to the symbol's room.
+    Broadcast a new signal to all clients (globally) and to the symbol's room.
     """
     symbol = signal_data.get("symbol")
+    # Emit globally for general listeners like SignalList and Heatmap
+    await sio.emit("signal_update", signal_data)
+    
+    # Emit to symbol-specific room for subscribers
     if symbol:
         await sio.emit("signal_update", signal_data, room=symbol)

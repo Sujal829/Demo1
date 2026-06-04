@@ -29,15 +29,23 @@ async def _run_generation():
     if db.client is None:
         await connect_to_mongo()
         
+    timeframes = ["15m", "30m", "1h", "1d"]
     for symbol in WATCHLIST:
-        try:
-            signal = signal_generator.generate_signal(symbol)
-            if signal and signal.signal != "NO TRADE":
-                # Save to DB
-                await db.client["trading_db"].signals.insert_one(signal.model_dump(by_alias=True))
-                logger.info(f"Generated new signal for {symbol}: {signal.signal}")
-                
-                # Here we could also trigger a WebSocket broadcast
-                # We will handle real-time via Socket.IO directly later
-        except Exception as e:
-            logger.error(f"Error generating signal for {symbol}: {e}")
+        for tf in timeframes:
+            try:
+                signal = signal_generator.generate_signal(symbol, timeframe=tf)
+                if signal and signal.signal != "NO TRADE":
+                    # Save to DB (Synchronously using pymongo)
+                    db.client["trading_db"].signals.insert_one(signal.model_dump(by_alias=True))
+                    logger.info(f"Generated new signal for {symbol} ({tf}): {signal.signal}")
+                    
+                    # Broadcast the new signal in real-time
+                    import requests
+                    try:
+                        sig_json = signal.model_dump_json(by_alias=True)
+                        headers = {"Content-Type": "application/json"}
+                        requests.post("http://127.0.0.1:8000/api/v1/signals/broadcast", data=sig_json, headers=headers, timeout=2)
+                    except Exception as broadcast_err:
+                        logger.error(f"Failed to broadcast signal for {symbol} ({tf}): {broadcast_err}")
+            except Exception as e:
+                logger.error(f"Error generating signal for {symbol} ({tf}): {e}")

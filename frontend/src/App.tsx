@@ -1,13 +1,28 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard/Dashboard';
 import AdvancedChart from './pages/Trading/AdvancedChart';
-import { useEffect } from 'react';
-import { connectSocket, disconnectSocket } from './services/socket';
+import { useEffect, useState } from 'react';
+import { connectSocket, disconnectSocket, socket } from './services/socket';
+import { Wifi, WifiOff } from 'lucide-react';
 
 function App() {
+  const [isConnected, setIsConnected] = useState(socket.connected);
+
   useEffect(() => {
     connectSocket();
+
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+
+    // Initial check
+    setIsConnected(socket.connected);
+
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
       disconnectSocket();
     };
   }, []);
@@ -23,6 +38,19 @@ function App() {
             <div className="flex gap-4">
               <a href="/" className="hover:text-primary transition-colors">Dashboard</a>
               <a href="/chart" className="hover:text-primary transition-colors">Advanced Chart</a>
+            </div>
+            
+            {/* Live Connection Indicator */}
+            <div className="ml-auto flex items-center gap-2">
+              {isConnected ? (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-success bg-success/10 px-3 py-1 rounded-full border border-success/30">
+                  <Wifi className="w-3.5 h-3.5" /> WebSocket Live
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-danger bg-danger/10 px-3 py-1 rounded-full border border-danger/30 animate-pulse">
+                  <WifiOff className="w-3.5 h-3.5" /> Offline
+                </span>
+              )}
             </div>
           </div>
         </nav>

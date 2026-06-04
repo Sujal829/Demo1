@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 import { api } from '../../services/api';
 
 export default function AdvancedChart() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const chartRef = useRef<any | null>(null);
+  const candlestickSeriesRef = useRef<any | null>(null);
   const [symbol, setSymbol] = useState("^NSEI");
   const [loading, setLoading] = useState(false);
 

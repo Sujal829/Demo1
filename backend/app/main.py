@@ -20,9 +20,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Mount Socket.IO
-app.mount("/ws", sio_app)
-
 # Set up CORS
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +30,9 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Mount Socket.IO
+app.mount("/", sio_app)
 
 @app.get("/")
 async def root():

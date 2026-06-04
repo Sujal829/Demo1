@@ -1,4 +1,5 @@
 import SignalList from '../../components/Signals/SignalList';
+import Heatmap from '../../components/Dashboard/Heatmap';
 import { Activity, TrendingUp, ShieldAlert, Wallet } from 'lucide-react';
 
 export default function Dashboard() {
@@ -18,11 +19,8 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        <div className="lg:col-span-2 glass-panel p-6 min-h-[400px] flex items-center justify-center">
-          <div className="text-center">
-            <h3 className="text-xl font-bold mb-2">Market Heatmap</h3>
-            <p className="text-gray-400">Visualizing market breadth and sentiment (Coming Soon)</p>
-          </div>
+        <div className="lg:col-span-2">
+          <Heatmap />
         </div>
         <div className="lg:col-span-1">
           <SignalList />
