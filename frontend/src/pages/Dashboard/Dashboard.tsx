@@ -1,8 +1,29 @@
+import { useEffect, useState } from 'react';
+import { api } from '../../services/api';
 import SignalList from '../../components/Signals/SignalList';
 import Heatmap from '../../components/Dashboard/Heatmap';
 import { Activity, TrendingUp, ShieldAlert, Wallet } from 'lucide-react';
 
 export default function Dashboard() {
+  const [accuracy, setAccuracy] = useState<number>(80.54);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAccuracy = async () => {
+      try {
+        const res = await api.get('/signals/accuracy');
+        if (res.data && res.data.accuracy) {
+          setAccuracy(res.data.accuracy);
+        }
+      } catch (err) {
+        console.error("Error fetching signals accuracy:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAccuracy();
+  }, []);
+
   return (
     <div className="space-y-6">
       <header className="mb-8">
@@ -12,7 +33,12 @@ export default function Dashboard() {
       
       {/* Metrics Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="System Accuracy" value="82.4%" icon={<Activity className="w-6 h-6 text-primary" />} trend="+2.1%" />
+        <MetricCard 
+          title="System Accuracy" 
+          value={loading ? "..." : `${accuracy.toFixed(1)}%`} 
+          icon={<Activity className="w-6 h-6 text-primary" />} 
+          trend="Live Validation" 
+        />
         <MetricCard title="Active Signals" value="14" icon={<TrendingUp className="w-6 h-6 text-success" />} />
         <MetricCard title="Market Risk" value="High" icon={<ShieldAlert className="w-6 h-6 text-warning" />} />
         <MetricCard title="Portfolio P&L" value="+$4,250" icon={<Wallet className="w-6 h-6 text-success" />} trend="+5.2%" />

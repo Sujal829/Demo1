@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../services/api';
 import { socket } from '../../services/socket';
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Sparkles } from 'lucide-react';
 
 interface MarketItem {
   symbol: string;
@@ -26,8 +26,9 @@ const WATCHLIST_SYMBOLS = [
   { symbol: 'HDFCBANK.NS', name: 'HDFC Bank' }
 ];
 
+const TIMEFRAMES = ['15m', '30m', '1h', '1d'];
+
 export default function Heatmap() {
-  const [timeframe, setTimeframe] = useState<string>('1h');
   const [marketData, setMarketData] = useState<Record<string, MarketItem>>(() => {
     const initial: Record<string, MarketItem> = {};
     WATCHLIST_SYMBOLS.forEach(item => {
@@ -43,7 +44,8 @@ export default function Heatmap() {
     return initial;
   });
 
-  const [predictions, setPredictions] = useState<Record<string, PredictionSignal>>({});
+  // Map of symbol -> Record of timeframe -> PredictionSignal
+  const [predictions, setPredictions] = useState<Record<string, Record<string, PredictionSignal>>>({});
   const [loadingPredictions, setLoadingPredictions] = useState(true);
   const [flashSymbol, setFlashSymbol] = useState<Record<string, boolean>>({});
 
@@ -95,20 +97,23 @@ export default function Heatmap() {
     });
   };
 
-  // Fetch Predictions for selected timeframe
+  // Fetch Predictions for all timeframes
   const fetchPredictions = async () => {
     try {
       setLoadingPredictions(true);
       const res = await api.get('/signals/latest', {
-        params: { timeframe, limit: 50 }
+        params: { limit: 100 }
       });
 
-      const latestSignals: Record<string, PredictionSignal> = {};
+      const grouped: Record<string, Record<string, PredictionSignal>> = {};
       
       // Process starting from oldest to newest so the newest overwrites
       const signals = [...res.data].reverse();
       signals.forEach((sig: any) => {
-        latestSignals[sig.symbol] = {
+        if (!grouped[sig.symbol]) {
+          grouped[sig.symbol] = {};
+        }
+        grouped[sig.symbol][sig.timeframe] = {
           symbol: sig.symbol,
           signal: sig.signal,
           confidence: sig.confidence,
@@ -116,7 +121,7 @@ export default function Heatmap() {
         };
       });
 
-      setPredictions(latestSignals);
+      setPredictions(grouped);
     } catch (error) {
       console.error("Error fetching signals for heatmap", error);
     } finally {
@@ -126,103 +131,140 @@ export default function Heatmap() {
 
   useEffect(() => {
     fetchMarketData();
+    fetchPredictions();
+    
     const intervalId = setInterval(fetchMarketData, 60000); // refresh every 60s
     return () => clearInterval(intervalId);
   }, []);
 
   useEffect(() => {
-    fetchPredictions();
-  }, [timeframe]);
-
-  useEffect(() => {
     // Listen for live updates from websocket
     const handleSignalUpdate = (newSignal: any) => {
-      if (newSignal.timeframe === timeframe) {
-        setPredictions(prev => ({
+      setPredictions(prev => {
+        const symbolPreds = prev[newSignal.symbol] || {};
+        return {
           ...prev,
           [newSignal.symbol]: {
-            symbol: newSignal.symbol,
-            signal: newSignal.signal,
-            confidence: newSignal.confidence,
-            timeframe: newSignal.timeframe
+            ...symbolPreds,
+            [newSignal.timeframe]: {
+              symbol: newSignal.symbol,
+              signal: newSignal.signal,
+              confidence: newSignal.confidence,
+              timeframe: newSignal.timeframe
+            }
           }
-        }));
+        };
+      });
 
-        // Trigger a visual flash effect to show real-time live update
-        setFlashSymbol(prev => ({ ...prev, [newSignal.symbol]: true }));
-        const timer = setTimeout(() => {
-          setFlashSymbol(prev => ({ ...prev, [newSignal.symbol]: false }));
-        }, 1500);
-      }
+      // Trigger a visual flash effect to show real-time live update
+      setFlashSymbol(prev => ({ ...prev, [newSignal.symbol]: true }));
+      const timer = setTimeout(() => {
+        setFlashSymbol(prev => ({ ...prev, [newSignal.symbol]: false }));
+      }, 1500);
     };
 
     socket.on('signal_update', handleSignalUpdate);
     return () => {
       socket.off('signal_update', handleSignalUpdate);
     };
-  }, [timeframe]);
+  }, []);
 
-  // Color code helper based on AI sentiment
+  // Determine dominant direction across all timeframes for card background styling
+  const getDominantSentiment = (symbol: string) => {
+    const symbolPreds = predictions[symbol];
+    if (!symbolPreds) return 'NEUTRAL';
+    
+    let calls = 0;
+    let puts = 0;
+    
+    Object.values(symbolPreds).forEach(pred => {
+      if (pred.signal === 'CALL') calls++;
+      if (pred.signal === 'PUT') puts++;
+    });
+    
+    if (calls > puts) return 'CALL';
+    if (puts > calls) return 'PUT';
+    return 'NEUTRAL';
+  };
+
   const getSentimentStyles = (symbol: string) => {
-    const pred = predictions[symbol];
+    const dominant = getDominantSentiment(symbol);
+    if (dominant === 'CALL') {
+      return 'bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.08)]';
+    }
+    if (dominant === 'PUT') {
+      return 'bg-rose-500/10 border-rose-500/20 hover:border-rose-500/50 shadow-[0_0_20px_rgba(239,68,68,0.08)]';
+    }
+    return 'bg-gray-800/40 border-gray-700/50 hover:border-gray-650 shadow-lg';
+  };
+
+  // Render sub-pills for each timeframe prediction
+  const renderTimeframeBadge = (symbol: string, tf: string) => {
+    const pred = predictions[symbol]?.[tf];
     if (!pred) {
-      return 'bg-gray-800/40 border-gray-700/50 hover:border-gray-600/80 shadow-lg';
+      return (
+        <div key={tf} className="bg-gray-900/45 border border-gray-800/60 p-2 rounded-lg text-center flex-1">
+          <div className="text-[10px] text-gray-500 font-bold uppercase">{tf}</div>
+          <div className="text-xs font-extrabold text-gray-600 mt-1">-</div>
+        </div>
+      );
     }
-    if (pred.signal === 'CALL') {
-      return 'bg-emerald-500/15 border-emerald-500/30 hover:border-emerald-500/60 shadow-[0_0_15px_rgba(16,185,129,0.15)] text-emerald-400';
-    }
-    if (pred.signal === 'PUT') {
-      return 'bg-rose-500/15 border-rose-500/30 hover:border-rose-500/60 shadow-[0_0_15px_rgba(239,68,68,0.15)] text-rose-400';
-    }
-    return 'bg-gray-800/40 border-gray-700/50 hover:border-gray-600/80 shadow-lg';
+    
+    const isCall = pred.signal === 'CALL';
+    const isPut = pred.signal === 'PUT';
+    
+    return (
+      <div 
+        key={tf} 
+        className={`p-2 rounded-lg text-center flex-1 border transition-all duration-300 ${
+          isCall 
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+            : isPut 
+            ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' 
+            : 'bg-gray-900/40 border-gray-850 text-gray-500'
+        }`}
+      >
+        <div className={`text-[10px] uppercase font-black tracking-wider ${
+          isCall ? 'text-emerald-400/80' : isPut ? 'text-rose-400/80' : 'text-gray-500'
+        }`}>
+          {tf}
+        </div>
+        <div className="text-xs font-black tracking-tight mt-1 flex flex-col leading-tight">
+          <span>{pred.signal}</span>
+          <span className="text-[9px] font-mono font-medium text-gray-400 mt-0.5">
+            {pred.confidence.toFixed(0)}%
+          </span>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="glass-panel p-6 flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             Market Heatmap
-            <span className="text-xs font-normal text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full border border-gray-700">
-              Live Breath
+            <span className="text-xs font-normal text-gray-400 bg-gray-900 px-2 py-0.5 rounded-full border border-gray-700 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-primary animate-pulse" /> Multi-Timeframe Sentiment
             </span>
           </h2>
-          <p className="text-sm text-gray-400 mt-0.5">Visualizing market change & AI prediction sentiment</p>
+          <p className="text-sm text-gray-400 mt-0.5">Visualizing live market breadth and predictions</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Timeframe selector */}
-          <div className="flex bg-gray-900/60 p-0.5 rounded-lg border border-gray-800">
-            {['15m', '30m', '1h', '1d'].map((tf) => (
-              <button
-                key={tf}
-                onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                  timeframe === tf
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-
-          <button 
-            onClick={() => { fetchMarketData(); fetchPredictions(); }}
-            className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white transition-colors"
-            title="Refresh Heatmap"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
+        <button 
+          onClick={() => { fetchMarketData(); fetchPredictions(); }}
+          className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white transition-colors"
+          title="Refresh Heatmap"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
         {WATCHLIST_SYMBOLS.map((item) => {
           const data = marketData[item.symbol];
-          const pred = predictions[item.symbol];
           const sentimentClass = getSentimentStyles(item.symbol);
           const isUp = (data?.changePercent ?? 0) >= 0;
 
@@ -230,7 +272,7 @@ export default function Heatmap() {
             <div
               key={item.symbol}
               className={`p-5 rounded-xl border transition-all duration-500 flex flex-col justify-between group ${sentimentClass} ${
-                flashSymbol[item.symbol] ? 'ring-2 ring-primary scale-[1.02] shadow-[0_0_20px_rgba(59,130,246,0.3)]' : ''
+                flashSymbol[item.symbol] ? 'ring-2 ring-primary scale-[1.02] shadow-[0_0_20px_rgba(59,130,246,0.3)] bg-gray-800' : ''
               }`}
             >
               <div>
@@ -239,14 +281,14 @@ export default function Heatmap() {
                     <h3 className="font-extrabold text-lg text-white group-hover:text-primary transition-colors">
                       {item.name}
                     </h3>
-                    <span className="text-xs font-mono text-gray-400 bg-gray-900/40 px-2 py-0.5 rounded border border-gray-800">
+                    <span className="text-[10px] font-mono text-gray-400 bg-gray-900/60 px-2 py-0.5 rounded border border-gray-850">
                       {item.symbol}
                     </span>
                   </div>
                   
                   {/* Daily Change Badge */}
                   {!data.loading && !data.error && data.changePercent !== null && (
-                    <div className={`flex items-center gap-1 text-sm font-bold px-2 py-0.5 rounded-full ${
+                    <div className={`flex items-center gap-1 text-sm font-bold px-2.5 py-0.5 rounded-full ${
                       isUp ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
                     }`}>
                       {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
@@ -258,7 +300,7 @@ export default function Heatmap() {
                 {/* Price Display */}
                 <div className="mt-4">
                   {data.loading ? (
-                    <div className="h-7 w-24 bg-gray-800 animate-pulse rounded"></div>
+                    <div className="h-7 w-28 bg-gray-800/60 animate-pulse rounded"></div>
                   ) : data.error ? (
                     <span className="text-xs text-danger flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" /> Error loading price
@@ -274,30 +316,19 @@ export default function Heatmap() {
                 </div>
               </div>
 
-              {/* AI Prediction Section */}
-              <div className="mt-6 pt-4 border-t border-gray-800/40 flex items-center justify-between text-xs">
-                <span className="text-gray-400 font-medium">AI Sentiment ({timeframe}):</span>
+              {/* Timeframe Predictions Row */}
+              <div className="mt-6 pt-4 border-t border-gray-800/40">
+                <span className="text-xs font-semibold text-gray-400 block mb-2">AI Predictions:</span>
                 {loadingPredictions ? (
-                  <div className="h-5 w-16 bg-gray-800 animate-pulse rounded"></div>
-                ) : pred ? (
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-0.5 rounded-full font-extrabold tracking-wide uppercase text-[10px] ${
-                      pred.signal === 'CALL' 
-                        ? 'bg-emerald-500 text-white' 
-                        : pred.signal === 'PUT' 
-                        ? 'bg-rose-500 text-white' 
-                        : 'bg-gray-700 text-gray-300'
-                    }`}>
-                      {pred.signal}
-                    </span>
-                    <span className="font-semibold text-gray-300 font-mono">
-                      {pred.confidence.toFixed(1)}% Conf
-                    </span>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="h-10 bg-gray-800/50 animate-pulse rounded-lg"></div>
+                    ))}
                   </div>
                 ) : (
-                  <span className="text-gray-500 italic flex items-center gap-1">
-                    <Minus className="w-3.5 h-3.5" /> No active signal
-                  </span>
+                  <div className="grid grid-cols-4 gap-2">
+                    {TIMEFRAMES.map((tf) => renderTimeframeBadge(item.symbol, tf))}
+                  </div>
                 )}
               </div>
             </div>
