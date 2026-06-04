@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Any
 from pydantic import BaseModel, Field
 from app.db.mongodb import get_database
+from app.services.market_data_provider import market_data_provider
 import uuid
 
 router = APIRouter()
@@ -20,7 +21,21 @@ async def get_portfolio(
     db: Any = Depends(get_database)
 ) -> Any:
     cursor = db.portfolios.find({"user_id": user_id})
-    return list(cursor)
+    items = list(cursor)
+    
+    for item in items:
+        item["_id"] = str(item["_id"])
+        symbol = item.get("symbol")
+        try:
+            df = market_data_provider.get_historical_data(symbol, interval="15m", period="1d")
+            if not df.empty:
+                latest_price = float(df.iloc[-1]['close'])
+                db.portfolios.update_one({"_id": item["_id"]}, {"$set": {"current_price": latest_price}})
+                item["current_price"] = latest_price
+        except Exception as e:
+            print(f"Error fetching live price for {symbol}: {e}")
+            
+    return items
 
 @router.post("/", response_model=PortfolioItem)
 async def add_portfolio_item(

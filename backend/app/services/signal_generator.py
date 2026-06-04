@@ -39,7 +39,7 @@ class SignalGenerator:
         features_row = FeatureEngineer.extract_features(df_features.tail(1))
         
         # 4. Get ML Prediction
-        ml_result = prediction_engine.get_prediction(features_row)
+        ml_result = prediction_engine.get_prediction(features_row, timeframe=timeframe)
         
         direction = ml_result.get("direction", "NO TRADE")
         confidence = ml_result.get("confidence", 0.0)
